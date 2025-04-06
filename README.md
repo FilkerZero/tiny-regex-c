@@ -1,14 +1,5 @@
 # tiny-regex-c
-Fork's modifications:
-- added functions that can operate on data not ended with '\0' (functions ended with letter 'n'),
-- deleted static variables in *re_compile* so many compiled patterns can be stored,
-- added struct containing compiled pattern and its buffer,
-- changed some variables from "int" to "unsigned int" as they can never have values < 0,
-- added CMakeLists file,
-- rewritten some tests to GTest, so running them can be more automated with CMake.
-
-<!-- ![CI](https://github.com/kokke/tiny-regex-c/workflows/CI/badge.svg)
-# tiny-regex-c
+![CI](https://github.com/kokke/tiny-regex-c/workflows/CI/badge.svg)
 # A small regex implementation in C
 ### Description
 Small and portable [Regular Expression](https://en.wikipedia.org/wiki/Regular_expression) (regex) library written in C. 
@@ -124,9 +115,17 @@ For more usage examples I encourage you to look at the code in the `tests`-folde
 
   A: Well, the small size for one. 500 lines of C-code compiling to 2-3kb ROM, using very little RAM.
 
+### Change Log (@FilkerZero fork)
+#### 2025-04-06
+Dispite checkin comment where I attributed the wrong user, the first commit to the @FilkerZero fork is a manual merge of changes to the @kokke's master branch made by @3p3v.
+
+3p3v's Fork modifications:
+- added functions that can operate on data not ended with '\0' (functions ended with letter 'n'),
+- deleted static variables in *re_compile* so many compiled patterns can be stored,
+- added struct containing compiled pattern and its buffer,
+- changed some variables from "int" to "unsigned int" as they can never have values < 0,
+- added CMakeLists file,
+- rewritten some tests to GTest, so running them can be more automated with CMake.
+
 ### License
 All material in this repository is in the public domain.
-
-
-
-  -->
