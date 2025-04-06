@@ -1,4 +1,13 @@
-![CI](https://github.com/kokke/tiny-regex-c/workflows/CI/badge.svg)
+# tiny-regex-c
+Fork's modifications:
+- added functions that can operate on data not ended with '\0' (functions ended with letter 'n'),
+- deleted static variables in *re_compile* so many compiled patterns can be stored,
+- added struct containing compiled pattern and its buffer,
+- changed some variables from "int" to "unsigned int" as they can never have values < 0,
+- added CMakeLists file,
+- rewritten some tests to GTest, so running them can be more automated with CMake.
+
+<!-- ![CI](https://github.com/kokke/tiny-regex-c/workflows/CI/badge.svg)
 # tiny-regex-c
 # A small regex implementation in C
 ### Description
@@ -120,4 +129,4 @@ All material in this repository is in the public domain.
 
 
 
- 
+  -->

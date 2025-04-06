@@ -33,50 +33,37 @@
 #include <stdio.h>
 #include <ctype.h>
 
-/* Definitions: */
-
-#define MAX_REGEXP_OBJECTS      30    /* Max number of regex symbols in expression. */
-#define MAX_CHAR_CLASS_LEN      40    /* Max length of character-class buffer in.   */
-
-
 enum { UNUSED, DOT, BEGIN, END, QUESTIONMARK, STAR, PLUS, CHAR, CHAR_CLASS, INV_CHAR_CLASS, DIGIT, NOT_DIGIT, ALPHA, NOT_ALPHA, WHITESPACE, NOT_WHITESPACE, /* BRANCH */ };
 
-typedef struct regex_t
-{
-  unsigned char  type;   /* CHAR, STAR, etc.                      */
-  union
-  {
-    unsigned char  ch;   /*      the character itself             */
-    unsigned char* ccl;  /*  OR  a pointer to characters in class */
-  } u;
-} regex_t;
-
-
-
 /* Private function declarations: */
-static int matchpattern(regex_t* pattern, const char* text, int* matchlength);
+static int matchpattern(regex_t* pattern, const char* text, unsigned int* matchlength);
 static int matchcharclass(char c, const char* str);
-static int matchstar(regex_t p, regex_t* pattern, const char* text, int* matchlength);
-static int matchplus(regex_t p, regex_t* pattern, const char* text, int* matchlength);
+static int matchstar(regex_t p, regex_t* pattern, const char* text, unsigned int* matchlength);
+static int matchplus(regex_t p, regex_t* pattern, const char* text, unsigned int* matchlength);
 static int matchone(regex_t p, char c);
 static int matchdigit(char c);
 static int matchalpha(char c);
 static int matchwhitespace(char c);
-static int matchmetachar(char c, const char* str);
+static int matchmetachar(char c, char str);
 static int matchrange(char c, const char* str);
 static int matchdot(char c);
 static int ismetachar(char c);
 
-
+/* Private function declarations, with string length parameter: */
+static int matchpatternn(regex_t* pattern, const char* text, size_t textlength, unsigned int* matchlength);
+static int matchstarn(regex_t p, regex_t* pattern, const char* text, size_t textlength, unsigned int* matchlength);
+static int matchplusn(regex_t p, regex_t* pattern, const char* text, size_t textlength, unsigned int* matchlength);
 
 /* Public functions: */
-int re_match(const char* pattern, const char* text, int* matchlength)
+int re_match(const char* pattern, const char* text, unsigned int* matchlength)
 {
-  return re_matchp(re_compile(pattern), text, matchlength);
+  regex_tuple_t re_pattern;
+  return re_matchp(re_compile(pattern, &re_pattern), text, matchlength);
 }
 
-int re_matchp(re_t pattern, const char* text, int* matchlength)
+int re_matchp(re_tuple_t re_pattern, const char* text, unsigned int* matchlength)
 {
+  re_t pattern = (re_t)re_pattern->pattern;
   *matchlength = 0;
   if (pattern != 0)
   {
@@ -86,12 +73,10 @@ int re_matchp(re_t pattern, const char* text, int* matchlength)
     }
     else
     {
-      int idx = -1;
+      unsigned int idx = 0;
 
       do
       {
-        idx += 1;
-
         if (matchpattern(pattern, text, matchlength))
         {
           if (text[0] == '\0')
@@ -99,6 +84,8 @@ int re_matchp(re_t pattern, const char* text, int* matchlength)
 
           return idx;
         }
+
+        idx += 1;
       }
       while (*text++ != '\0');
     }
@@ -106,13 +93,14 @@ int re_matchp(re_t pattern, const char* text, int* matchlength)
   return -1;
 }
 
-re_t re_compile(const char* pattern)
+# ifndef REGEX_ALLOC
+re_tuple_t re_compile(const char* pattern, re_tuple_t re_pattern)
 {
   /* The sizes of the two static arrays below substantiates the static RAM usage of this module.
      MAX_REGEXP_OBJECTS is the max number of symbols in the expression.
      MAX_CHAR_CLASS_LEN determines the size of buffer for chars in all char-classes in the expression. */
-  static regex_t re_compiled[MAX_REGEXP_OBJECTS];
-  static unsigned char ccl_buf[MAX_CHAR_CLASS_LEN];
+  regex_t *re_compiled = re_pattern->pattern;
+  unsigned char *ccl_buf = re_pattern->buf;
   int ccl_bufidx = 1;
 
   char c;     /* current char in pattern   */
@@ -245,8 +233,12 @@ re_t re_compile(const char* pattern)
   /* 'UNUSED' is a sentinel used to indicate end-of-pattern */
   re_compiled[j].type = UNUSED;
 
-  return (re_t) re_compiled;
+  return (re_tuple_t) re_pattern;
 }
+
+#else
+#error "Heap allocation currently not supported, not hard to implement though."
+#endif
 
 void re_print(regex_t* pattern)
 {
@@ -285,7 +277,42 @@ void re_print(regex_t* pattern)
   }
 }
 
+/* Public functions, with string length parameter: */
+int re_matchn(const char* pattern, const char* text, size_t textlength, unsigned int* matchlength)
+{
+  regex_tuple_t re_pattern;
+  return re_matchpn(re_compile(pattern, &re_pattern), text, textlength, matchlength);
+}
 
+int re_matchpn(re_tuple_t re_pattern, const char* text, size_t textlength, unsigned int* matchlength)
+{
+  re_t pattern = (re_t)re_pattern->pattern;
+  *matchlength = 0;
+  if (pattern != 0)
+  {
+    if (pattern[0].type == BEGIN)
+    {
+      return ((matchpatternn(&pattern[1], text, textlength, matchlength)) ? 0 : -1);
+    }
+    else
+    {
+      unsigned int idx = 0;
+
+      do
+      {
+        if (matchpatternn(pattern, text + idx, textlength - idx, matchlength))
+        {
+          if (textlength == idx)
+            return -1;
+
+          return idx;
+        }
+      }
+      while (idx++ != textlength);
+    }
+  }
+  return -1;
+}
 
 /* Private functions: */
 static int matchdigit(char c)
@@ -328,9 +355,9 @@ static int ismetachar(char c)
   return ((c == 's') || (c == 'S') || (c == 'w') || (c == 'W') || (c == 'd') || (c == 'D'));
 }
 
-static int matchmetachar(char c, const char* str)
+static int matchmetachar(char c, char str)
 {
-  switch (str[0])
+  switch (str)
   {
     case 'd': return  matchdigit(c);
     case 'D': return !matchdigit(c);
@@ -338,7 +365,7 @@ static int matchmetachar(char c, const char* str)
     case 'W': return !matchalphanum(c);
     case 's': return  matchwhitespace(c);
     case 'S': return !matchwhitespace(c);
-    default:  return (c == str[0]);
+    default:  return (c == str);
   }
 }
 
@@ -354,7 +381,7 @@ static int matchcharclass(char c, const char* str)
     {
       /* Escape-char: increment str-ptr and match on next char */
       str += 1;
-      if (matchmetachar(c, str))
+      if (matchmetachar(c, *str))
       {
         return 1;
       }
@@ -397,9 +424,9 @@ static int matchone(regex_t p, char c)
   }
 }
 
-static int matchstar(regex_t p, regex_t* pattern, const char* text, int* matchlength)
+static int matchstar(regex_t p, regex_t* pattern, const char* text, unsigned int* matchlength)
 {
-  int prelen = *matchlength;
+  unsigned int prelen = *matchlength;
   const char* prepoint = text;
   while ((text[0] != '\0') && matchone(p, *text))
   {
@@ -417,7 +444,7 @@ static int matchstar(regex_t p, regex_t* pattern, const char* text, int* matchle
   return 0;
 }
 
-static int matchplus(regex_t p, regex_t* pattern, const char* text, int* matchlength)
+static int matchplus(regex_t p, regex_t* pattern, const char* text, unsigned int* matchlength)
 {
   const char* prepoint = text;
   while ((text[0] != '\0') && matchone(p, *text))
@@ -435,7 +462,7 @@ static int matchplus(regex_t p, regex_t* pattern, const char* text, int* matchle
   return 0;
 }
 
-static int matchquestion(regex_t p, regex_t* pattern, const char* text, int* matchlength)
+static int matchquestion(regex_t p, regex_t* pattern, const char* text, unsigned int* matchlength)
 {
   if (p.type == UNUSED)
     return 1;
@@ -490,7 +517,7 @@ static int matchpattern(regex_t* pattern, const char* text, int *matchlength)
 #else
 
 /* Iterative matching */
-static int matchpattern(regex_t* pattern, const char* text, int* matchlength)
+static int matchpattern(regex_t* pattern, const char* text, unsigned int* matchlength)
 {
   int pre = *matchlength;
   do
@@ -520,6 +547,109 @@ static int matchpattern(regex_t* pattern, const char* text, int* matchlength)
   (*matchlength)++;
   }
   while ((text[0] != '\0') && matchone(*pattern++, *text++));
+
+  *matchlength = pre;
+  return 0;
+}
+
+#endif
+
+/* Private functions, with string length parameter: */
+static int matchstarn(regex_t p, regex_t* pattern, const char* text, size_t textlength, unsigned int* matchlength) // TODO
+{
+  unsigned int prelen = *matchlength;
+  const char* prepoint = text;
+  while (textlength && matchone(p, *text)) // TODO
+  {
+    text++;
+    textlength--;
+    (*matchlength)++;
+  }
+  while (text >= prepoint)
+  {
+    if (matchpatternn(pattern, text--, textlength++, matchlength))
+      return 1;
+    (*matchlength)--;
+  }
+
+  *matchlength = prelen;
+  return 0;
+}
+
+static int matchplusn(regex_t p, regex_t* pattern, const char* text, size_t textlength, unsigned int* matchlength) // TODO
+{
+  const char* prepoint = text;
+  while (textlength && matchone(p, *text))
+  {
+    text++;
+    textlength--;
+    (*matchlength)++;
+  }
+  while (text > prepoint)
+  {
+    if (matchpatternn(pattern, text--, textlength++, matchlength))
+      return 1;
+    (*matchlength)--;
+  }
+
+  return 0;
+}
+
+static int matchquestionn(regex_t p, regex_t* pattern, const char* text, size_t textlength, unsigned int* matchlength)
+{
+  if (p.type == UNUSED)
+    return 1;
+  if (matchpatternn(pattern, text, textlength, matchlength))
+      return 1;
+  if (textlength-- && matchone(p, *text++))
+  {
+    if (matchpatternn(pattern, text, textlength, matchlength))
+    {
+      (*matchlength)++;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+#if 0
+
+/* Recursive matching */
+// TODO implement recursive matching
+
+#else
+
+/* Iterative matching */
+static int matchpatternn(regex_t* pattern, const char* text, size_t textlength, unsigned int* matchlength)
+{
+  int pre = *matchlength;
+  do
+  {
+    if ((pattern[0].type == UNUSED) || (pattern[1].type == QUESTIONMARK))
+    {
+      return matchquestionn(pattern[0], &pattern[2], text, textlength, matchlength);
+    }
+    else if (pattern[1].type == STAR)
+    {
+      return matchstarn(pattern[0], &pattern[2], text, textlength, matchlength);
+    }
+    else if (pattern[1].type == PLUS)
+    {
+      return matchplusn(pattern[0], &pattern[2], text, textlength, matchlength);
+    }
+    else if ((pattern[0].type == END) && pattern[1].type == UNUSED)
+    {
+      return textlength == 0 ? -1 : 0; // TODO look if can return -1 when error, instead of 1
+    }
+/*  Branching is not working properly
+    else if (pattern[1].type == BRANCH)
+    {
+      return (matchpattern(pattern, text) || matchpattern(&pattern[2], text));
+    }
+*/
+  (*matchlength)++;
+  }
+  while (textlength-- && matchone(*pattern++, *text++));
 
   *matchlength = pre;
   return 0;
